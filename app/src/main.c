@@ -79,9 +79,9 @@ int main(void)
 
 	    if(i==0) {MOTOR_Cmd_Update(100*0);}*/
 
-		MOTOR_Cmd_Update(100*8);
+		MOTOR_Cmd_Update(100*consigne);
 		BSP_DELAY_ms(1000);
-		MOTOR_Cmd_Update(-100*8);
+		MOTOR_Cmd_Update(-100*consigne);
 		BSP_DELAY_ms(1000);
 
 
