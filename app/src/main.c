@@ -1,17 +1,18 @@
 /*
  * main.c
  *
- *  Created on: Feb 6, 2025
- *      Author: marou
+ * Created on: Feb 6, 2025
+ * Author: marou
  */
 
 #include "stm32f0xx.h"
 #include "main.h"
 #include "bsp.h"
 #include "motor.h"
-#include "bsp.h"
 #include "delay.h"
 
+// Prototype de ta fonction my_printf pour pouvoir l'utiliser ici
+int my_printf(const char *format, ...);
 
 #define CONVERSION_FACTOR (uint32_t)37 // in /m
 #define COEFF_0 (uint32_t)7 //l'ADC renvoie 0 pour 7 mm
@@ -21,28 +22,34 @@ uint8_t 	timebase_irq;
 uint16_t extensionLength;
 int32_t		 eps ;
 
-
 int main(void)
 {
 	uint32_t consigne = 30; // en mm
-	//uint32_t tolerance = 10; // en mm
+
     // Configuration de l'horloge système
     SystemClock_Config();
     while(SysTick_Config(SystemCoreClock/10) != 0);
+
     // Initialisation de la console de debug
     BSP_Console_Init();
     my_printf("Console ready!\r\n");
 
-    // Initialisation de l'ADC (si nécessaire)
+    // Initialisation de l'ADC
     BSP_ADC_Init();
     my_printf("ADC ready!\r\n");
 
-    // Initialisation de la broche DIRA (PA6) pour le contrôle de la direction du moteur
+    // --- INITIALISATION GPS ---
+    BSP_GPS_Init();
+    my_printf("GPS Init OK\r\n");
+    char gps_buffer[128]; // Tableau pour stocker la ligne lue
+    // --------------------------
+
+    // Initialisation moteur
     my_printf("Enabling motors\r\n");
     MOTOR_Enable_Init();
     BSP_DELAY_ms(50);
 
-    // Initialisation du PWM sur TIM1 avec PB3 (AF2) comme sortie
+    // Initialisation PWM
     my_printf("Staring PWM\r\n");
     BSP_TIMER_PWM_Init();
     BSP_DELAY_ms(50);
@@ -50,53 +57,29 @@ int main(void)
 	// Enable sampling timer interrupts
 	NVIC_SetPriority(TIM6_DAC_IRQn, 1);
 	NVIC_EnableIRQ(TIM6_DAC_IRQn);
-    // Boucle principale : alterne 2 sec en avant, 2 sec en arrière
 
-
-/*    uint64_t i=100000;
-
-    uint8_t x = 1;*/
 	while (1)
 	{
-	   /* extensionLength = ((ADC1->DR) / CONVERSION_FACTOR) + COEFF_0;
+		// 1. Lire une ligne du GPS
+		BSP_GPS_ReadLine(gps_buffer, 128);
 
-	    eps = consigne - extensionLength;
-	    MOTOR_Cmd_Update(-eps*100*3);
-
-
-	    while ((ADC1->ISR & ADC_ISR_EOC) != ADC_ISR_EOC);
-	    my_printf("Longueur de la tige = %d mm\r\n", extensionLength);
-	    my_printf("eps = %d\r\n", eps);
-*/
-	/*	if(x==0) BSP_DELAY_ms(2000);
-		x=0;
-		if(i!=0){
-
-	    MOTOR_Cmd_Update(100*8);
-		i=i-1;
+		// 2. Vérifier si c'est une ligne de position ($GPGGA)
+		// On regarde "manuellement" les caractères 3, 4 et 5
+		if (gps_buffer[3] == 'G' && gps_buffer[4] == 'G' && gps_buffer[5] == 'A')
+		{
+			// 3. Affichage my_printf
+			// On affiche le buffer comme une string (%s)
+			my_printf("Donnee GPS: %s\r\n", gps_buffer);
 		}
 
-
-	    if(i==0) {MOTOR_Cmd_Update(100*0);}*/
-
+		/* test moteur */
 		MOTOR_Cmd_Update(100*consigne);
 		BSP_DELAY_ms(1000);
+
 		MOTOR_Cmd_Update(-100*consigne);
 		BSP_DELAY_ms(1000);
-
-
-
-
-
 	}
-
-
-
 }
-
-
-
-
 
 /*
  * Clock configuration for the Nucleo STM32F072RB board
@@ -104,7 +87,6 @@ int main(void)
  * SYSCLK, AHB, APB1                -> 48MHz
  * PA8 as MCO with /16 prescaler    -> 3MHz
  */
-
 static void SystemClock_Config()
 {
 	uint32_t	HSE_Status;

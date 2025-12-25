@@ -273,3 +273,107 @@ uint32_t abs_diff(uint32_t a, uint32_t b) {
     return (a > b) ? (a - b) : (b - a);
 }
 
+
+/*
+ * BSP_GPS_Init()
+ * USART1 @ 9600 Baud (Standard Adafruit GPS)
+ * 1 start - 8-bit - 1 stop
+ * TX -> PA9  (AF1)
+ * RX -> PA10 (AF1)
+ */
+void BSP_GPS_Init()
+{
+    // 1. Enable GPIOA clock (si ce n'est pas déjà fait ailleurs)
+    RCC->AHBENR |= RCC_AHBENR_GPIOAEN;
+
+    // 2. Configure PA9 (TX) and PA10 (RX) as Alternate Function
+    // On nettoie les bits pour PA9 et PA10
+    GPIOA->MODER &= ~(GPIO_MODER_MODER9_Msk | GPIO_MODER_MODER10_Msk);
+    // On met '10' (Alternate Function) pour PA9 et PA10
+    GPIOA->MODER |= (0x02 << GPIO_MODER_MODER9_Pos) | (0x02 << GPIO_MODER_MODER10_Pos);
+
+    // 3. Set PA9 and PA10 to AF1 (USART1)
+    // Attention: PA9 et PA10 sont dans le registre AFR[1] (High Register) car pin > 7
+    // Pin 9 est sur les bits 4-7, Pin 10 sur les bits 8-11
+    GPIOA->AFR[1] &= ~(0x00000FF0); // Clear bits for pin 9 and 10
+    GPIOA->AFR[1] |=  (0x00000110); // Set AF1 (0001) for pin 9 and 10
+
+    // 4. Enable USART1 clock
+    // Note: USART1 est souvent sur APB2 sur le F0
+    RCC->APB2ENR |= RCC_APB2ENR_USART1EN;
+
+    // 5. Clear USART1 configuration (Reset state)
+    USART1->CR1 = 0x00000000;
+    USART1->CR2 = 0x00000000;
+    USART1->CR3 = 0x00000000;
+
+    // 6. Configure Baud Rate to 9600
+    // Clock source PCLK = 48 MHz (comme dans votre BSP_Console)
+    // Baud Rate = 9600
+    // USARTDIV = 48,000,000 / 9600 = 5000
+    USART1->BRR = 5000;
+
+    // 7. Enable Transmitter and Receiver
+    USART1->CR1 |= USART_CR1_TE | USART_CR1_RE;
+
+    // 8. Enable USART1
+    USART1->CR1 |= USART_CR1_UE;
+}
+
+/*
+ * BSP_GPS_ReadChar()
+ * Blocking function that waits for a character from GPS
+ */
+char BSP_GPS_ReadChar()
+{
+    // Wait until RXNE (Read Data Register Not Empty) bit is set
+    // ISR: Interrupt and Status Register
+    while ((USART1->ISR & USART_ISR_RXNE) != USART_ISR_RXNE)
+    {
+        // On attend (Busy wait)
+    }
+
+    // Read data from RDR (Receive Data Register)
+    // Reading clears the RXNE flag automatically
+    return (char)(USART1->RDR);
+}
+
+/*
+ * BSP_GPS_ReadLine()
+ * Fills the buffer with a full NMEA line (starts with '$', ends with '\n')
+ * Blocking function.
+ */
+void BSP_GPS_ReadLine(char *buffer, int max_len)
+{
+    char c;
+    int index = 0;
+
+    // 1. Wait for start of sentence '$'
+    // On ignore tout tant qu'on n'a pas vu le début d'une trame
+    do {
+        c = BSP_GPS_ReadChar();
+    } while (c != '$');
+
+    // On stocke le '$' au début
+    buffer[index++] = c;
+
+    // 2. Read until end of line ('\n')
+    while (index < max_len - 1)
+    {
+        c = BSP_GPS_ReadChar();
+
+        // Si on reçoit \r (Carriage Return), on l'ignore souvent ou on le garde,
+        // mais la fin réelle est \n. Ici on garde tout sauf \n pour fermer la chaine.
+        if (c == '\n')
+        {
+            break; // Fin de la ligne
+        }
+
+        buffer[index++] = c;
+    }
+
+    // 3. Null-terminate string
+    buffer[index] = '\0';
+}
+
+
